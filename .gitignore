@@ -1,0 +1,16 @@
+# secrets - never commit
+.env
+.env.*
+!.env.example
+
+# local tooling
+.venv/
+__pycache__/
+*.pyc
+.vercel/
+.DS_Store
+
+# local data
+*.db
+media/
+*.log

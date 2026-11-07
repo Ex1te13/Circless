@@ -1,0 +1,9 @@
+.env
+.env.*
+.venv
+__pycache__
+*.db
+media
+*.log
+deploy_setup.py
+README.md

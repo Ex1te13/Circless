@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Мои кружки</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root {
+  --bg: var(--tg-theme-bg-color, #ffffff);
+  --bg2: var(--tg-theme-secondary-bg-color, #f1f1f4);
+  --text: var(--tg-theme-text-color, #111111);
+  --hint: var(--tg-theme-hint-color, #8a8a8e);
+  --accent: var(--tg-theme-button-color, #2481cc);
+  --on-accent: var(--tg-theme-button-text-color, #ffffff);
+  --danger: var(--tg-theme-destructive-text-color, #e5484d);
+  --sep: var(--tg-theme-section-separator-color, rgba(127,127,127,.2));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.tg) { --bg:#17181c; --bg2:#22242a; --text:#f2f2f2; --hint:#8d8f96; --sep:rgba(255,255,255,.12); }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+.top { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 12px 16px 0; }
+.head { display: flex; align-items: center; gap: 8px; }
+.head h1 { font-size: 20px; font-weight: 600; margin: 0; flex: 1; }
+.head .count { color: var(--hint); font-size: 14px; }
+.sort { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--accent); padding: 6px 0 6px 8px; }
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 12px 0; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; padding: 6px 12px; border-radius: 999px; background: var(--bg2); font-size: 14px; white-space: nowrap; }
+.chip .n { color: var(--hint); margin-left: 4px; }
+.chip.on { background: var(--accent); color: var(--on-accent); }
+.chip.on .n { color: inherit; opacity: .75; }
+.grid { padding: 0 16px 40px; }
+.day { font-size: 13px; color: var(--hint); margin: 14px 2px 8px; }
+.row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.cell { position: relative; aspect-ratio: 1; border-radius: 50%; background: var(--bg2); }
+.cell img, .cell video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; border-radius: 50%; }
+.dur { position: absolute; right: 2%; bottom: 4%; font-size: 11px; padding: 1px 6px; border-radius: 8px;
+  background: rgba(0,0,0,.6); color: #fff; }
+.empty { text-align: center; color: var(--hint); padding: 60px 24px; }
+
+.viewer { position: fixed; inset: 0; z-index: 20; background: var(--bg); display: none; flex-direction: column;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); touch-action: none; }
+.viewer.open { display: flex; }
+.vbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+.vbar .title { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vbar .pos { color: var(--hint); font-size: 14px; }
+.stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  transition: transform .22s ease, opacity .22s ease; }
+.stage.out-up { transform: translateY(-40px); opacity: 0; }
+.stage.out-down { transform: translateY(40px); opacity: 0; }
+.big { position: relative; width: min(78vw, 340px); aspect-ratio: 1; }
+.big video { position: absolute; inset: 8px; width: calc(100% - 16px); height: calc(100% - 16px);
+  border-radius: 50%; object-fit: cover; background: var(--bg2); }
+.big svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.big .paused { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+  font-size: 54px; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,.5); pointer-events: none; }
+.big.is-paused .paused { display: flex; }
+.meta { color: var(--hint); font-size: 14px; }
+.vtags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; padding: 0 24px; min-height: 28px; }
+.vtag { padding: 4px 10px; border-radius: 999px; background: var(--bg2); font-size: 13px; }
+.hintline { color: var(--hint); font-size: 12px; }
+.actions { display: flex; gap: 8px; padding: 12px 16px 16px; }
+.actions button { flex: 1; padding: 12px 0; border-radius: 12px; background: var(--bg2); font-size: 14px; }
+.actions .del { color: var(--danger); }
+
+.sheet-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.4); display: none; align-items: flex-end; }
+.sheet-bg.open { display: flex; }
+.sheet { width: 100%; background: var(--bg); border-radius: 16px 16px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); max-height: 75vh; overflow-y: auto; }
+.sheet h2 { font-size: 17px; margin: 0 0 12px; }
+.sheet .chips { flex-wrap: wrap; overflow: visible; padding: 0 0 12px; }
+.newtag { display: flex; gap: 8px; }
+.newtag input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--sep);
+  background: var(--bg2); color: var(--text); font: inherit; outline: none; }
+.newtag button { padding: 0 14px; border-radius: 10px; background: var(--bg2); }
+.save { width: 100%; margin-top: 14px; padding: 13px; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  z-index: 40; background: rgba(0,0,0,.8); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px;
+  opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="head">
+    <h1>Мои кружки</h1>
+    <span class="count" id="count"></span>
+    <button class="sort" id="sort"></button>
+  </div>
+  <div class="chips" id="chips"></div>
+</div>
+<div class="grid" id="grid"><div class="empty">Загружаю…</div></div>
+
+<div class="viewer" id="viewer">
+  <div class="vbar">
+    <button id="close" aria-label="Закрыть">✕</button>
+    <span class="title" id="vtitle"></span>
+    <span class="pos" id="vpos"></span>
+  </div>
+  <div class="stage" id="stage">
+    <div class="big" id="big">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <circle cx="50" cy="50" r="48" fill="none" stroke="var(--sep)" stroke-width="2"/>
+        <circle id="ring" cx="50" cy="50" r="48" fill="none" stroke="var(--accent)" stroke-width="2.5"
+          stroke-linecap="round" stroke-dasharray="301.6" stroke-dashoffset="301.6"/>
+      </svg>
+      <video id="video" playsinline webkit-playsinline preload="auto"></video>
+      <div class="paused">▶</div>
+    </div>
+    <div class="meta" id="vmeta"></div>
+    <div class="vtags" id="vtags"></div>
+    <div class="hintline">свайп вверх или вниз, чтобы листать</div>
+  </div>
+  <div class="actions">
+    <button id="aTags">🏷 Теги</button>
+    <button id="aSend">↗ В чат</button>
+    <button id="aDel" class="del">🗑 Удалить</button>
+  </div>
+</div>
+
+<div class="sheet-bg" id="sheetBg">
+  <div class="sheet">
+    <h2>Теги кружка</h2>
+    <div class="chips" id="sheetChips"></div>
+    <div class="newtag">
+      <input id="newTag" placeholder="Новый тег, например «горы»" enterkeyhint="done">
+      <button id="addTag">Добавить</button>
+    </div>
+    <button class="save" id="saveTags">Сохранить</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<video id="preload" preload="auto" muted playsinline style="display:none"></video>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg && tg.initData) { document.documentElement.classList.add("tg"); tg.ready(); tg.expand(); }
+const $ = (id) => document.getElementById(id);
+const MONTHS = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+
+const state = { circles: [], newest: false, filter: new Set(["__all"]), list: [], cur: 0, sheetTags: new Set() };
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "X-Init-Data": tg ? tg.initData : "", "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(res.status + " " + (await res.text()));
+  return res.json();
+}
+
+function haptic() { try { tg.HapticFeedback.selectionChanged(); } catch (e) {} }
+function toast(text) {
+  const t = $("toast"); t.textContent = text; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), 1800);
+}
+function confirmBox(text) {
+  return new Promise((ok) => (tg && tg.showConfirm) ? tg.showConfirm(text, ok) : ok(window.confirm(text)));
+}
+function dayKey(ts) { const d = new Date(ts * 1000); return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); }
+function dayLabel(ts) { const d = new Date(ts * 1000); return d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear(); }
+function fmtDur(s) { return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+function allTags() {
+  const counts = new Map();
+  state.circles.forEach((c) => c.tags.forEach((t) => counts.set(t, (counts.get(t) || 0) + 1)));
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function filtered() {
+  const f = state.filter;
+  let list = state.circles.filter((c) => {
+    if (f.has("__all")) return true;
+    if (f.has("__none")) return c.tags.length === 0;
+    return [...f].every((t) => c.tags.includes(t));
+  });
+  list.sort((a, b) => (a.date - b.date) || (a.id - b.id));
+  if (state.newest) list.reverse();
+  return list;
+}
+
+function filterTitle() {
+  const f = state.filter;
+  if (f.has("__all")) return "Все кружки";
+  if (f.has("__none")) return "Без тегов";
+  return [...f].join(" + ");
+}
+
+function renderChips() {
+  const box = $("chips"); box.innerHTML = "";
+  const untagged = state.circles.filter((c) => !c.tags.length).length;
+  const items = [["__all", "Все", state.circles.length], ...allTags().map(([t, n]) => [t, t, n])];
+  if (untagged) items.push(["__none", "Без тегов", untagged]);
+  items.forEach(([key, label, n]) => {
+    const b = el("button", "chip" + (state.filter.has(key) ? " on" : ""), label);
+    b.appendChild(el("span", "n", n));
+    b.onclick = () => {
+      haptic();
+      const f = state.filter;
+      if (key.startsWith("__")) { state.filter = new Set([key]); }
+      else {
+        f.delete("__all"); f.delete("__none");
+        f.has(key) ? f.delete(key) : f.add(key);
+        if (!f.size) f.add("__all");
+      }
+      render();
+    };
+    box.appendChild(b);
+  });
+}
+
+const lazy = new IntersectionObserver((entries) => entries.forEach((e) => {
+  if (e.isIntersecting) { const v = e.target; v.src = v.dataset.src; lazy.unobserve(v); }
+}), { rootMargin: "300px" });
+
+function renderGrid() {
+  const g = $("grid"); g.innerHTML = "";
+  state.list = filtered();
+  $("count").textContent = state.list.length || "";
+  if (!state.circles.length) { g.appendChild(el("div", "empty", "Пока пусто. Перешли боту кружок, и он появится здесь.")); return; }
+  if (!state.list.length) { g.appendChild(el("div", "empty", "Нет кружков со всеми выбранными тегами")); return; }
+  let last = null, row = null;
+  state.list.forEach((c, i) => {
+    const k = dayKey(c.date);
+    if (k !== last) { last = k; g.appendChild(el("div", "day", dayLabel(c.date))); row = el("div", "row"); g.appendChild(row); }
+    const cell = el("button", "cell");
+    if (c.thumb) { const img = el("img"); img.loading = "lazy"; img.src = c.thumb; img.alt = ""; cell.appendChild(img); }
+    else { const v = el("video"); v.muted = true; v.playsInline = true; v.preload = "metadata"; v.dataset.src = c.video + "#t=0.5"; cell.appendChild(v); lazy.observe(v); }
+    if (c.duration) cell.appendChild(el("span", "dur", fmtDur(c.duration)));
+    cell.onclick = () => openViewer(i);
+    row.appendChild(cell);
+  });
+}
+
+function renderSort() { $("sort").textContent = state.newest ? "↓ сначала новые" : "↑ сначала старые"; }
+function render() { renderChips(); renderGrid(); renderSort(); }
+
+$("sort").onclick = async () => {
+  haptic(); state.newest = !state.newest; render();
+  api("/api/order", { newest_first: state.newest }).catch(() => {});
+};
+
+// ---------------- viewer
+const video = $("video"), ring = $("ring"), big = $("big");
+function showCurrent() {
+  const c = state.list[state.cur]; if (!c) return closeViewer();
+  $("vtitle").textContent = filterTitle();
+  $("vpos").textContent = (state.cur + 1) + " из " + state.list.length;
+  $("vmeta").textContent = dayLabel(c.date) + (c.duration ? " · " + fmtDur(c.duration) : "");
+  const tags = $("vtags"); tags.innerHTML = "";
+  if (c.tags.length) c.tags.forEach((t) => tags.appendChild(el("span", "vtag", t)));
+  else tags.appendChild(el("span", "meta", "без тегов"));
+  ring.style.strokeDashoffset = 301.6;
+  video.src = c.video; video.currentTime = 0;
+  video.play().catch(() => big.classList.add("is-paused"));
+  const next = state.list[state.cur + 1]; if (next) $("preload").src = next.video;
+}
+function openViewer(i) {
+  state.cur = i; $("viewer").classList.add("open"); document.body.style.overflow = "hidden";
+  if (tg && tg.BackButton) tg.BackButton.show();
+  showCurrent();
+}
+function closeViewer() {
+  video.pause(); video.removeAttribute("src"); video.load();
+  $("viewer").classList.remove("open"); document.body.style.overflow = "";
+  if (tg && tg.BackButton) tg.BackButton.hide();
+}
+function step(dir) {
+  const n = state.cur + dir;
+  if (n < 0 || n >= state.list.length) { try { tg.HapticFeedback.notificationOccurred("warning"); } catch (e) {} return; }
+  haptic();
+  const stage = $("stage");
+  stage.classList.add(dir > 0 ? "out-up" : "out-down");
+  setTimeout(() => { state.cur = n; showCurrent(); stage.classList.remove("out-up", "out-down"); }, 160);
+}
+video.addEventListener("timeupdate", () => {
+  if (video.duration) ring.style.strokeDashoffset = 301.6 * (1 - video.currentTime / video.duration);
+});
+video.addEventListener("play", () => big.classList.remove("is-paused"));
+video.addEventListener("pause", () => big.classList.add("is-paused"));
+video.addEventListener("ended", () => { ring.style.strokeDashoffset = 0; if (state.cur < state.list.length - 1) step(1); });
+big.onclick = () => (video.paused ? video.play() : video.pause());
+$("close").onclick = closeViewer;
+if (tg && tg.BackButton) tg.BackButton.onClick(() => $("sheetBg").classList.contains("open") ? closeSheet() : closeViewer());
+
+let touchY = null;
+$("viewer").addEventListener("touchstart", (e) => { touchY = e.touches[0].clientY; }, { passive: true });
+$("viewer").addEventListener("touchend", (e) => {
+  if (touchY === null) return;
+  const dy = e.changedTouches[0].clientY - touchY; touchY = null;
+  if (Math.abs(dy) > 50) step(dy < 0 ? 1 : -1);
+});
+let wheelLock = 0;
+$("viewer").addEventListener("wheel", (e) => {
+  if (Date.now() < wheelLock || Math.abs(e.deltaY) < 20) return;
+  wheelLock = Date.now() + 500; step(e.deltaY > 0 ? 1 : -1);
+}, { passive: true });
+document.addEventListener("keydown", (e) => {
+  if (!$("viewer").classList.contains("open") || $("sheetBg").classList.contains("open")) return;
+  if (e.key === "ArrowDown") step(1);
+  if (e.key === "ArrowUp") step(-1);
+  if (e.key === "Escape") closeViewer();
+  if (e.key === " ") { e.preventDefault(); big.onclick(); }
+});
+
+// ---------------- actions
+$("aSend").onclick = async () => {
+  const c = state.list[state.cur];
+  try { await api(`/api/circles/${c.id}/send`, {}); toast("Отправил в чат с ботом, оттуда можно переслать"); }
+  catch (e) { toast("Не получилось отправить"); }
+};
+$("aDel").onclick = async () => {
+  const c = state.list[state.cur];
+  if (!(await confirmBox("Удалить этот кружок из хранилища?"))) return;
+  try {
+    await api(`/api/circles/${c.id}/delete`, {});
+    state.circles = state.circles.filter((x) => x.id !== c.id);
+    state.list = filtered();
+    toast("Удалено");
+    renderChips(); renderGrid();
+    if (!state.list.length) return closeViewer();
+    state.cur = Math.min(state.cur, state.list.length - 1); showCurrent();
+  } catch (e) { toast("Не получилось удалить"); }
+};
+
+function renderSheet() {
+  const box = $("sheetChips"); box.innerHTML = "";
+  const names = new Set([...allTags().map(([t]) => t), ...state.sheetTags]);
+  [...names].forEach((t) => {
+    const b = el("button", "chip" + (state.sheetTags.has(t) ? " on" : ""), t);
+    b.onclick = () => { haptic(); state.sheetTags.has(t) ? state.sheetTags.delete(t) : state.sheetTags.add(t); renderSheet(); };
+    box.appendChild(b);
+  });
+}
+function closeSheet() { $("sheetBg").classList.remove("open"); }
+$("aTags").onclick = () => {
+  state.sheetTags = new Set(state.list[state.cur].tags);
+  $("newTag").value = ""; renderSheet(); $("sheetBg").classList.add("open");
+};
+$("sheetBg").onclick = (e) => { if (e.target === $("sheetBg")) closeSheet(); };
+function addTyped() {
+  $("newTag").value.split(",").map((s) => s.trim().replace(/^#/, "").replace(/\s+/g, " ").toLowerCase())
+    .filter(Boolean).forEach((t) => state.sheetTags.add(t));
+  $("newTag").value = ""; renderSheet();
+}
+$("addTag").onclick = addTyped;
+$("newTag").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addTyped(); } });
+$("saveTags").onclick = async () => {
+  if ($("newTag").value.trim()) addTyped();
+  const c = state.list[state.cur];
+  try {
+    const res = await api(`/api/circles/${c.id}/tags`, { tags: [...state.sheetTags] });
+    c.tags = res.tags; closeSheet(); toast("Теги сохранены");
+    renderChips(); showCurrentTagsOnly(c);
+  } catch (e) { toast("Не получилось сохранить"); }
+};
+function showCurrentTagsOnly(c) {
+  const tags = $("vtags"); tags.innerHTML = "";
+  if (c.tags.length) c.tags.forEach((t) => tags.appendChild(el("span", "vtag", t)));
+  else tags.appendChild(el("span", "meta", "без тегов"));
+}
+
+// ---------------- start
+(async () => {
+  try {
+    const d = await api("/api/data");
+    state.circles = d.circles; state.newest = d.newest_first;
+    render();
+  } catch (e) {
+    $("grid").innerHTML = "";
+    $("grid").appendChild(el("div", "empty", String(e).includes("401")
+      ? "Открой галерею через кнопку в боте" : "Не получилось загрузить кружки: " + e.message));
+  }
+})();
+</script>
+</body>
+</html>
