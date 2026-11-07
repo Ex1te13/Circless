@@ -129,6 +129,8 @@ def target_circles(user_id: int, target: str) -> list[int]:
     kind, num = target[0], int(target[1:])
     if kind == "b":
         return db.batch_circle_ids(user_id, num)
+    if kind != "c":  # "r<tag_id>": waiting for a new tag name, not a tagging prompt
+        return []
     circle = db.get_circle(user_id, num)
     return [circle["id"]] if circle else []
 
@@ -192,7 +194,27 @@ def tags_list_view(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
         extra.append(InlineKeyboardButton(text=f"Без тегов · {untagged}", callback_data="sh:none:0"))
     rows.append(extra)
     rows.append([InlineKeyboardButton(text=f"🔃 Порядок: {order_label(db.newest_first(user_id))}", callback_data="ord")])
+    if tags:
+        rows.append([InlineKeyboardButton(text="✏️ Переименовать или удалить теги", callback_data="tm")])
     text = f"🗂 Тегов: <b>{len(tags)}</b>, кружков: <b>{total}</b>\nВыбери, что показать:"
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def tags_manage_view(user_id: int, note: str = "") -> tuple[str, InlineKeyboardMarkup]:
+    """Every tag with ✏️ rename and 🗑 delete buttons."""
+    tags = db.list_tags(user_id)
+    rows = [
+        [
+            InlineKeyboardButton(text=f"{t['name']} · {t['cnt']}", callback_data=f"tr:{t['id']}"),
+            InlineKeyboardButton(text="✏️", callback_data=f"tr:{t['id']}"),
+            InlineKeyboardButton(text="🗑", callback_data=f"td:{t['id']}"),
+        ]
+        for t in tags
+    ]
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="tl")])
+    text = (note + "\n\n" if note else "") + (
+        "✏️ — переименовать тег, 🗑 — удалить (кружки останутся)." if tags else "Тегов пока нет."
+    )
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -527,6 +549,9 @@ async def on_text(message: Message) -> None:
     if not cur:
         await message.answer("Перешли мне кружок, а потом напиши теги. Посмотреть сохранённое: /tags")
         return
+    if cur[0].startswith("r"):
+        await rename_from_text(message, uid, int(cur[0][1:]), cur[1], cur[2])
+        return
     circle_ids = target_circles(uid, cur[0])
     names = split_tags(message.text)
     if not circle_ids or not names:
@@ -671,6 +696,83 @@ async def cb_order(cq: CallbackQuery) -> None:
     db.set_newest_first(uid, not db.newest_first(uid))
     text, kb = tags_list_view(uid)
     await together(cq.answer(f"Порядок: {order_label(db.newest_first(uid))}"), safe_edit(cq.message, text, kb))
+
+
+# ---------------------------------------------------------------- tag management
+async def rename_from_text(message: Message, uid: int, tag_id: int, chat_id: int, msg_id: int) -> None:
+    tag = db.get_tag(uid, tag_id)
+    new = normalize_tag(message.text)
+    clear_current(uid)
+    if not tag:
+        note = "Этого тега уже нет."
+    elif not new:
+        note = "Имя не может быть пустым."
+    else:
+        merged = db.find_tag(uid, new)
+        db.rename_tag(uid, tag_id, new)
+        verb = "объединён с" if merged and merged["id"] != tag_id else "переименован в"
+        note = f"✅ Тег {fmt_tags([tag['name']])} {verb} {fmt_tags([new])}"
+    text, kb = tags_manage_view(uid, note)
+
+    async def update_prompt():
+        try:
+            await message.bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, reply_markup=kb)
+        except TelegramBadRequest:
+            await message.answer(text, reply_markup=kb)
+    await together(message.delete(), update_prompt(), return_exceptions=True)
+
+
+@router.callback_query(F.data == "tm")
+async def cb_tags_manage(cq: CallbackQuery) -> None:
+    cur = get_current(cq.from_user.id)
+    if cur and cur[0].startswith("r"):  # "Отмена" while renaming
+        clear_current(cq.from_user.id)
+    text, kb = tags_manage_view(cq.from_user.id)
+    await together(cq.answer(), safe_edit(cq.message, text, kb))
+
+
+@router.callback_query(F.data == "tl")
+async def cb_tags_list(cq: CallbackQuery) -> None:
+    text, kb = tags_list_view(cq.from_user.id)
+    await together(cq.answer(), safe_edit(cq.message, text, kb))
+
+
+@router.callback_query(F.data.startswith("tr:"))
+async def cb_tag_rename(cq: CallbackQuery) -> None:
+    uid = cq.from_user.id
+    tag = db.get_tag(uid, int(cq.data.split(":")[1]))
+    if not tag:
+        await cq.answer("Этого тега уже нет", show_alert=True)
+        return
+    set_current(uid, f"r{tag['id']}", cq.message.chat.id, cq.message.message_id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Отмена", callback_data="tm")]])
+    text = f"✏️ Напиши новое имя для тега {fmt_tags([tag['name']])}.\nЕсли такой тег уже есть, они объединятся."
+    await together(cq.answer(), safe_edit(cq.message, text, kb))
+
+
+@router.callback_query(F.data.startswith("td:"))
+async def cb_tag_delete_ask(cq: CallbackQuery) -> None:
+    tag = db.get_tag(cq.from_user.id, int(cq.data.split(":")[1]))
+    if not tag:
+        await cq.answer("Этого тега уже нет", show_alert=True)
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🗑 Да, удалить", callback_data=f"tdy:{tag['id']}"),
+        InlineKeyboardButton(text="Отмена", callback_data="tm"),
+    ]])
+    await together(cq.answer(), safe_edit(cq.message, f"Удалить тег {fmt_tags([tag['name']])}? Кружки останутся.", kb))
+
+
+@router.callback_query(F.data.startswith("tdy:"))
+async def cb_tag_delete_yes(cq: CallbackQuery) -> None:
+    uid = cq.from_user.id
+    tag = db.get_tag(uid, int(cq.data.split(":")[1]))
+    note = "Этого тега уже нет."
+    if tag:
+        db.delete_tag(uid, tag["id"])
+        note = f"🗑 Тег {fmt_tags([tag['name']])} удалён."
+    text, kb = tags_manage_view(uid, note)
+    await together(cq.answer(), safe_edit(cq.message, text, kb))
 
 
 # ---------------------------------------------------------------- strangers

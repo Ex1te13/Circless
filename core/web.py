@@ -8,6 +8,8 @@
   POST /api/circles/{id}/tags     {"tags": [...]} - replaces the circle's tags
   POST /api/circles/{id}/delete
   POST /api/circles/{id}/send     bot sends the circle to the chat (to forward it to a friend)
+  POST /api/tags/{id}/rename      {"name": "..."} - merges into an existing tag with that name
+  POST /api/tags/{id}/delete
   GET  /media/{v|t}/{id}?u&e&s    video / preview: copies it to storage once, redirects to a signed link
 
 Gallery API calls are authenticated with Telegram's signed initData (header X-Init-Data).
@@ -178,6 +180,28 @@ async def set_tags(request: Request, uid: int) -> Response:
 
 
 @api
+async def rename_tag(request: Request, uid: int) -> Response:
+    db = services.db()
+    tag = db.get_tag(uid, int(request.path_params["id"]))
+    if not tag:
+        raise LookupError
+    body = await request.json()
+    if not db.rename_tag(uid, tag["id"], str(body.get("name", ""))):
+        return PlainTextResponse("empty name", status_code=400)
+    return JSONResponse({"ok": True})
+
+
+@api
+async def delete_tag(request: Request, uid: int) -> Response:
+    db = services.db()
+    tag = db.get_tag(uid, int(request.path_params["id"]))
+    if not tag:
+        raise LookupError
+    db.delete_tag(uid, tag["id"])
+    return JSONResponse({"ok": True})
+
+
+@api
 async def delete(request: Request, uid: int) -> Response:
     circle = circle_or_404(request, uid)
     await remove_circles(uid, [circle["id"]])
@@ -244,6 +268,8 @@ app = Starlette(routes=[
     Route("/api/circles/{id:int}/tags", set_tags, methods=["POST"]),
     Route("/api/circles/{id:int}/delete", delete, methods=["POST"]),
     Route("/api/circles/{id:int}/send", send, methods=["POST"]),
+    Route("/api/tags/{id:int}/rename", rename_tag, methods=["POST"]),
+    Route("/api/tags/{id:int}/delete", delete_tag, methods=["POST"]),
     Route("/media/{kind:str}/{id:int}", media),
     Route("/files/{path:path}", local_file),
 ])

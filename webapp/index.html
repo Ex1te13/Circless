@@ -78,6 +78,14 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   background: var(--bg2); color: var(--text); font: inherit; outline: none; }
 .newtag button { padding: 0 14px; border-radius: 10px; background: var(--bg2); }
 .save { width: 100%; margin-top: 14px; padding: 13px; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.chip.edit { color: var(--accent); }
+.trow { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--sep); }
+.trow input { flex: 1; min-width: 0; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--sep);
+  background: var(--bg2); color: var(--text); font: inherit; outline: none; }
+.trow .cnt { color: var(--hint); font-size: 13px; min-width: 22px; text-align: right; }
+.trow button { padding: 8px 10px; border-radius: 10px; background: var(--bg2); font-size: 14px; }
+.trow .ok { background: var(--accent); color: var(--on-accent); }
+.trow .ok[hidden] { display: none; }
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
   z-index: 40; background: rgba(0,0,0,.8); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px;
   opacity: 0; transition: opacity .2s; pointer-events: none; }
@@ -133,6 +141,13 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
     <button class="save" id="saveTags">Сохранить</button>
   </div>
 </div>
+<div class="sheet-bg" id="tagsBg">
+  <div class="sheet">
+    <h2>Мои теги</h2>
+    <div id="tagRows"></div>
+    <button class="save" id="tagsDone">Готово</button>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 <video id="preload" preload="auto" muted playsinline style="display:none"></video>
 
@@ -142,7 +157,7 @@ if (tg && tg.initData) { document.documentElement.classList.add("tg"); tg.ready(
 const $ = (id) => document.getElementById(id);
 const MONTHS = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
 
-const state = { circles: [], newest: false, filter: new Set(["__all"]), list: [], cur: 0, sheetTags: new Set() };
+const state = { circles: [], tags: [], newest: false, filter: new Set(["__all"]), list: [], cur: 0, sheetTags: new Set() };
 
 async function api(path, body) {
   const res = await fetch(path, {
@@ -213,7 +228,49 @@ function renderChips() {
     };
     box.appendChild(b);
   });
+  if (state.tags.length) {
+    const e = el("button", "chip edit", "✎ Теги");
+    e.onclick = openTagEditor;
+    box.appendChild(e);
+  }
 }
+
+// ---------------- tag editor: rename / delete
+function openTagEditor() {
+  haptic();
+  const rows = $("tagRows"); rows.innerHTML = "";
+  state.tags.forEach((t) => {
+    const row = el("div", "trow");
+    const input = el("input"); input.value = t.name; input.enterKeyHint = "done";
+    const cnt = el("span", "cnt", t.count);
+    const ok = el("button", "ok", "Сохранить"); ok.hidden = true;
+    const del = el("button", "", "🗑");
+    input.oninput = () => { ok.hidden = !input.value.trim() || input.value.trim().toLowerCase() === t.name; };
+    input.onkeydown = (e) => { if (e.key === "Enter" && !ok.hidden) { e.preventDefault(); ok.onclick(); } };
+    ok.onclick = async () => {
+      const name = input.value.trim().replace(/^#/, "").replace(/\s+/g, " ").toLowerCase();
+      try {
+        await api(`/api/tags/${t.id}/rename`, { name });
+        if (state.filter.has(t.name)) { state.filter.delete(t.name); state.filter.add(name); }
+        await loadData(); openTagEditor(); toast("Тег переименован");
+      } catch (e) { toast("Не получилось переименовать"); }
+    };
+    del.onclick = async () => {
+      if (!(await confirmBox(`Удалить тег «${t.name}»? Кружки останутся.`))) return;
+      try {
+        await api(`/api/tags/${t.id}/delete`, {});
+        state.filter.delete(t.name); if (!state.filter.size) state.filter.add("__all");
+        await loadData(); openTagEditor(); toast("Тег удалён");
+      } catch (e) { toast("Не получилось удалить"); }
+    };
+    row.append(input, cnt, ok, del);
+    rows.appendChild(row);
+  });
+  if (!state.tags.length) rows.appendChild(el("div", "empty", "Тегов пока нет"));
+  $("tagsBg").classList.add("open");
+}
+$("tagsDone").onclick = () => $("tagsBg").classList.remove("open");
+$("tagsBg").onclick = (e) => { if (e.target === $("tagsBg")) $("tagsBg").classList.remove("open"); };
 
 const lazy = new IntersectionObserver((entries) => entries.forEach((e) => {
   if (e.isIntersecting) { const v = e.target; v.src = v.dataset.src; lazy.unobserve(v); }
@@ -367,11 +424,15 @@ function showCurrentTagsOnly(c) {
 }
 
 // ---------------- start
+async function loadData() {
+  const d = await api("/api/data");
+  state.circles = d.circles; state.newest = d.newest_first;
+  state.tags = d.tags;  // all tags, including empty ones, so they can be renamed or deleted
+  render();
+}
 (async () => {
   try {
-    const d = await api("/api/data");
-    state.circles = d.circles; state.newest = d.newest_first;
-    render();
+    await loadData();
   } catch (e) {
     $("grid").innerHTML = "";
     $("grid").appendChild(el("div", "empty", String(e).includes("401")
